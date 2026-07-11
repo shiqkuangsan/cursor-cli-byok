@@ -10,6 +10,7 @@ claim.
 | Environment | Cursor CLI | Evidence | Status |
 | --- | --- | --- | --- |
 | Darwin arm64 | `2026.07.08-0c04a8a` | Full `test/e2e/run.sh` against the real CLI with a fresh HOME/XDG tree | Passed 2026-07-11 |
+| Linux arm64 VPS | `2026.07.08-0c04a8a` | Installed current-worktree static ELF against a real loopback OpenAI-compatible relay; Responses/Chat text and Shell, Read/Write, PTY, doctor, model discovery, and three `gpt-5.6-luna` QA turns through Sub2API `v0.1.150` | Passed 2026-07-12 |
 | Linux x86_64 | `2026.07.09-a3815c0` | Full `test/e2e/run.sh` against the official CLI as a non-root user in a `linux/amd64` Debian container | Passed 2026-07-11 |
 | Linux arm64 | `2026.07.09-a3815c0` | Full `test/e2e/run.sh` against the official CLI as a non-root user in a native Debian arm64 container | Passed 2026-07-11 |
 | Linux arm64 container | fake child, not Cursor | Non-root release-ELF wrapper/daemon lifecycle via `test/linux-smoke/run.sh` | Passed 2026-07-11; not protocol evidence |
@@ -26,6 +27,33 @@ as UID 1000. It verifies native ELF startup, daemon locking and TLS state,
 selected provider-key isolation from the child, argument and exit-code
 preservation, and `status`/`stop`; its fake child deliberately proves nothing
 about Cursor's private protocol.
+
+The Linux arm64 VPS acceptance used no Cursor IDE, graphical session, or
+Cursor login. Its provider was a real OpenAI-compatible relay on loopback,
+rather than the deterministic E2E helper. The run discovered 20 models, selected
+`gpt-5.4`, exercised both supported streaming endpoints, verified exact Read
+and Write fixtures, and checked Shell side effects byte-for-byte. It also
+captured the older Linux CLI's post-Shell `BackgroundTaskCompletionAction` Run:
+the facade completes that metadata-only stream with zero token usage without
+calling the provider executor again.
+
+On 2026-07-12 the same VPS ran build
+`dev.243cec917036.providerheaders` against Sub2API `v0.1.150`. The
+`sub2-luna-responses` alias added only the relay-compatible Codex CLI
+User-Agent; the default `gpt-5.4` aliases and the official Cursor installation
+were unchanged. Three fresh `cursor-cli-byok --model sub2-luna-responses
+--trust --print` sessions produced:
+
+| QA | Prompt focus | Exact output |
+| --- | --- | --- |
+| 1 | `17 * 23` arithmetic | `391` |
+| 2 | `$1.10` bat-and-ball constraint | `$0.05` |
+| 3 | Go deferred argument evaluation | `1` |
+
+Each wrapper invocation exited 0 without reconnect output. Sub2API recorded
+three distinct `/v1/responses` requests with `stream=true`,
+`model=gpt-5.6-luna`, account 2, and HTTP 200. The observed request latencies
+were 2828 ms, 1315 ms, and 4476 ms.
 
 ## Acceptance Coverage
 
@@ -46,10 +74,16 @@ IDE state. It verifies:
   result that must not dispatch its hidden Write after cancellation;
 - Shell side effects executing once when a post-tool provider failure causes
   the official CLI to reconnect;
+- metadata-only background task completion Runs returning a complete
+  zero-usage `turnEnded` stream without another provider dispatch or Shell
+  execution;
 - loopback-only daemon/provider endpoints and mode-0600 state/config files;
 - provider API keys remaining available to the daemon while absent from the
   official Cursor process, Shell tool environment, logs, config values, and
   process arguments;
+- alias-scoped provider compatibility headers reaching Responses, Chat
+  Completions, and the inference-free `doctor` probe, while reserved protocol
+  headers are rejected and configured values remain redacted;
 - provider failure returning nonzero without falling back to Cursor inference.
 
 The Go integration suite additionally verifies authenticated, CA-pinned key
@@ -96,7 +130,7 @@ do not contain request bodies, tool outputs, or authorization values.
 
 ## Goal Completion Audit
 
-Last audited: 2026-07-11. A `Proved` row has direct current-worktree evidence;
+Last audited: 2026-07-12. A `Proved` row has direct current-worktree evidence;
 `Partial` or `Missing` rows cannot support a completion claim.
 
 | Requirement | Authoritative evidence | State |
@@ -105,7 +139,7 @@ Last audited: 2026-07-11. A `Proved` row has direct current-worktree evidence;
 | One pure-Go release binary | `Makefile` builds one `cmd/cursor-cli-byok`; current amd64 and arm64 artifacts are statically linked ELF files and their SHA-256 manifest verifies | Proved |
 | Explicit wrapper plus shared on-demand daemon | Wrapper, lock/state manager, authenticated loopback TLS service, idle shutdown, version-aware replacement, and real-CLI `status`/`stop` E2E | Proved |
 | No Cursor IDE or Cursor login | Official Linux arm64/x86_64 runs used isolated HOME/XDG trees, the file credential store, and containers containing only the CLI | Proved |
-| Custom Responses and Chat Completions streaming | Fake-provider contracts plus official Linux Cursor print and PTY runs through both configured endpoint types | Proved |
+| Custom Responses and Chat Completions streaming | Fake-provider contracts plus official Linux Cursor print and PTY runs through both configured endpoint types; real Sub2API `gpt-5.6-luna` completed three alias-header QA turns | Proved |
 | Multi-pass built-in and MCP tools | Unit/race coverage for all eight built-ins and terminal late-result rejection; real Darwin all-tool coverage; official Linux Read/Write/Shell/dynamic-MCP continuation, duplicate side-effect checks, and bounded MCP discovery | Proved |
 | Secure config and secret handling | Atomic mode-0600 config/state, mode-0700 directories, remote-HTTP rejection, CA-pinned controls, in-memory key rotation, child-env stripping, and E2E log/argv/process checks | Proved |
 | `doctor`, `status`, and `stop` | Command tests plus isolated real-CLI E2E, including version reporting, inference-free provider fallback, authenticated daemon lifecycle, state-before-PID-reaping completion, and lock-guarded replacement-state preservation across both cleanup race windows | Proved |

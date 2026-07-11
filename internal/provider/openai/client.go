@@ -24,6 +24,7 @@ type Options struct {
 	BaseURL       string
 	Endpoint      string
 	APIKey        string
+	Headers       map[string]string
 	HTTPClient    *http.Client
 	MaxEventBytes int
 }
@@ -32,6 +33,7 @@ type Client struct {
 	endpointURL   string
 	endpoint      string
 	apiKey        string
+	headers       http.Header
 	httpClient    *http.Client
 	maxEventBytes int
 }
@@ -43,6 +45,9 @@ func NewClient(options Options) (*Client, error) {
 	}
 	if options.APIKey == "" || options.APIKey != strings.TrimSpace(options.APIKey) || strings.IndexFunc(options.APIKey, unicode.IsControl) >= 0 {
 		return nil, errors.New("create OpenAI client: API key is required and must be valid")
+	}
+	if err := config.ValidateProviderHeaders(options.Headers); err != nil {
+		return nil, errors.New("create OpenAI client: provider headers are invalid")
 	}
 	maximum := options.MaxEventBytes
 	if maximum == 0 {
@@ -62,10 +67,15 @@ func NewClient(options Options) (*Client, error) {
 	clientCopy.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return errors.New("provider redirects are disabled")
 	}
+	headers := make(http.Header, len(options.Headers))
+	for name, value := range options.Headers {
+		headers.Set(name, value)
+	}
 	return &Client{
 		endpointURL:   endpointURL,
 		endpoint:      options.Endpoint,
 		apiKey:        options.APIKey,
+		headers:       headers,
 		httpClient:    &clientCopy,
 		maxEventBytes: maximum,
 	}, nil
@@ -102,6 +112,11 @@ func (client *Client) doStreamRequest(ctx context.Context, body any) (*http.Resp
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, client.endpointURL, strings.NewReader(string(payload)))
 	if err != nil {
 		return nil, errors.New("create provider request")
+	}
+	for name, values := range client.headers {
+		for _, value := range values {
+			httpRequest.Header.Add(name, value)
+		}
 	}
 	httpRequest.Header.Set("Accept", "text/event-stream")
 	httpRequest.Header.Set("Authorization", "Bearer "+client.apiKey)

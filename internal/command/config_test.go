@@ -30,6 +30,8 @@ func TestConfigInitNonInteractiveCreatesConfiguration(t *testing.T) {
 		"--endpoint", config.EndpointResponses,
 		"--upstream-model", "gpt-5.4",
 		"--api-key", secret,
+		"--header", "User-Agent: codex_cli_rs/0.144.1 (Linux; aarch64)",
+		"--header", "OpenAI-Beta: responses=experimental",
 	})
 
 	if exitCode != 0 {
@@ -44,11 +46,15 @@ func TestConfigInitNonInteractiveCreatesConfiguration(t *testing.T) {
 		Version:      config.CurrentVersion,
 		DefaultModel: "relay-gpt",
 		Models: []config.Model{{
-			Name:          "relay-gpt",
-			Protocol:      config.ProtocolOpenAI,
-			BaseURL:       "https://api.example.com",
-			Endpoint:      config.EndpointResponses,
-			APIKey:        secret,
+			Name:     "relay-gpt",
+			Protocol: config.ProtocolOpenAI,
+			BaseURL:  "https://api.example.com",
+			Endpoint: config.EndpointResponses,
+			APIKey:   secret,
+			Headers: map[string]string{
+				"OpenAI-Beta": "responses=experimental",
+				"User-Agent":  "codex_cli_rs/0.144.1 (Linux; aarch64)",
+			},
 			UpstreamModel: "gpt-5.4",
 		}},
 	}
@@ -82,6 +88,7 @@ func TestConfigHelpListsSubcommandsAndAutomationFlags(t *testing.T) {
 		"config remove",
 		"--non-interactive",
 		"--api-key-env",
+		"--header",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

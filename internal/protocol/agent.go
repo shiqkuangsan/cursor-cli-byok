@@ -41,6 +41,7 @@ type RunRequest struct {
 	ModelID         string
 	UserText        string
 	UserMessageID   string
+	MetadataOnly    bool
 	MCPToolsPresent bool
 	MCPTools        []MCPToolDefinition
 }
@@ -227,8 +228,28 @@ func decodeRunRequest(payload []byte) (RunRequest, error) {
 	if err != nil {
 		return RunRequest{}, fmt.Errorf("run request action is malformed: %w", err)
 	}
-	userActionMessage, ok := lastBytesField(actionFields, 1)
-	if !ok {
+	userActionMessage, hasUserAction := lastBytesField(actionFields, 1)
+	backgroundCompletion, hasBackgroundCompletion := lastBytesField(actionFields, 12)
+	if hasUserAction && hasBackgroundCompletion {
+		return RunRequest{}, errors.New("run request action is ambiguous")
+	}
+	if hasBackgroundCompletion {
+		if err := validateBackgroundTaskCompletionAction(backgroundCompletion); err != nil {
+			return RunRequest{}, err
+		}
+		mcpTools, err := decodeMCPTools(fields)
+		if err != nil {
+			return RunRequest{}, err
+		}
+		return RunRequest{
+			ConversationID:  conversationID,
+			ModelID:         modelID,
+			MetadataOnly:    true,
+			MCPToolsPresent: hasBytesField(fields, 4),
+			MCPTools:        mcpTools,
+		}, nil
+	}
+	if !hasUserAction {
 		return RunRequest{}, errors.New("run request user message is required")
 	}
 	userActionFields, err := decodeWireFields(userActionMessage)
@@ -260,6 +281,26 @@ func decodeRunRequest(payload []byte) (RunRequest, error) {
 		MCPToolsPresent: hasBytesField(fields, 4),
 		MCPTools:        mcpTools,
 	}, nil
+}
+
+func validateBackgroundTaskCompletionAction(payload []byte) error {
+	fields, err := decodeWireFields(payload)
+	if err != nil {
+		return fmt.Errorf("run request background completion is malformed: %w", err)
+	}
+	completion, ok := lastBytesField(fields, 1)
+	if !ok {
+		return errors.New("run request background completion is required")
+	}
+	completionFields, err := decodeWireFields(completion)
+	if err != nil {
+		return fmt.Errorf("run request background completion is malformed: %w", err)
+	}
+	taskID, ok := lastBytesField(completionFields, 1)
+	if !ok || !validIdentifier(strings.TrimSpace(string(taskID))) {
+		return errors.New("run request background completion task ID is required")
+	}
+	return nil
 }
 
 type wireField struct {

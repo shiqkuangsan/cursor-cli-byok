@@ -178,6 +178,10 @@ func (handler *agentHandler) serveDirectRun(writer http.ResponseWriter, request 
 			writeAgentHTTPError(writer, http.StatusBadRequest, "invalid_argument", "initial run message is invalid")
 			return
 		}
+		if message.Run.MetadataOnly {
+			writeDirectMetadataCompletion(writer)
+			return
+		}
 	default:
 		writeAgentHTTPError(writer, http.StatusBadRequest, "invalid_argument", "initial agent message is unsupported")
 		return
@@ -1166,6 +1170,18 @@ func writeDirectRunAcknowledgement(writer http.ResponseWriter) {
 	writer.Header().Set("Connect-Protocol-Version", "1")
 	writer.Header().Set("Content-Type", "application/connect+proto")
 	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(protocol.EncodeConnectEnd("", ""))
+	flushResponse(writer)
+}
+
+func writeDirectMetadataCompletion(writer http.ResponseWriter) {
+	_ = http.NewResponseController(writer).EnableFullDuplex()
+	writer.Header().Set("Cache-Control", "no-cache, no-store")
+	writer.Header().Set("Connect-Protocol-Version", "1")
+	writer.Header().Set("Content-Type", "application/connect+proto")
+	writer.WriteHeader(http.StatusOK)
+	turnEnded, _ := protocol.EncodeTurnEnded(protocol.TokenUsage{})
+	_, _ = writer.Write(protocol.EncodeConnectMessage(turnEnded))
 	_, _ = writer.Write(protocol.EncodeConnectEnd("", ""))
 	flushResponse(writer)
 }

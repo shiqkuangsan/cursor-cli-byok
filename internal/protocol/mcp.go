@@ -18,7 +18,7 @@ const (
 )
 
 func (request RunRequest) Equal(other RunRequest) bool {
-	if request.ConversationID != other.ConversationID || request.ModelID != other.ModelID || request.UserText != other.UserText || request.UserMessageID != other.UserMessageID || request.MCPToolsPresent != other.MCPToolsPresent || len(request.MCPTools) != len(other.MCPTools) {
+	if request.ConversationID != other.ConversationID || request.ModelID != other.ModelID || request.UserText != other.UserText || request.UserMessageID != other.UserMessageID || request.MetadataOnly != other.MetadataOnly || request.MCPToolsPresent != other.MCPToolsPresent || len(request.MCPTools) != len(other.MCPTools) {
 		return false
 	}
 	for index, tool := range request.MCPTools {

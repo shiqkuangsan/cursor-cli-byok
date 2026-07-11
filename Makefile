@@ -23,10 +23,10 @@ fmt-check:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
 test:
-	$(GO) test ./... -count=1
+	$(GO) test -p 1 ./... -count=1
 
 race:
-	$(GO) test -race ./... -count=1
+	$(GO) test -race -p 1 ./... -count=1
 
 vet:
 	$(GO) vet ./...

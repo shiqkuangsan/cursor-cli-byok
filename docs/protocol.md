@@ -143,10 +143,27 @@ diagnostics. The wrapper then removes every configured `api_key_env` name before
 launching the official Cursor process. The internal
 `CURSOR_CLI_BYOK_LOCK_FD` name is rejected as a provider key source.
 
+Each model alias may also define static provider compatibility headers. The
+daemon copies them into only that alias's outbound inference requests, and
+`doctor` applies the same set to its inference-free provider probe. Header
+values never enter Cursor-facing model messages, the official CLI environment,
+or formatted/JSON diagnostics. Authentication, representation, target-host,
+and hop-by-hop headers are reserved; the adapter remains authoritative for its
+Bearer token, SSE `Accept`, JSON `Content-Type`, and connection behavior.
+
 The daemon advertises the eight implemented built-ins: `Read`, `Write`,
 `Edit`, `Delete`, `List`, `Glob`, `Grep`, and `Shell`. MCP tools are appended per
 Run only after the Cursor client reports them; the internal `CallMcpTool`
 transport name is never offered to the provider.
+
+Linux `cursor-agent 2026.07.08-0c04a8a` can move a foreground Shell command to
+background tracking after its block interval, then send a metadata-only Run
+whose conversation action is `BackgroundTaskCompletionAction`. This is not a
+new user turn and must not invoke the provider or repeat the tool. The direct
+Run facade validates the completion task ID and returns a zero-usage
+`turnEnded` frame followed by the Connect terminal frame. Returning HTTP 400 or
+an empty HTTP 200 makes that CLI report a retriable error even when the Shell
+and provider calls already succeeded.
 
 ## Evidence And Provenance
 

@@ -101,6 +101,7 @@ func RunService(ctx context.Context, options ServiceOptions) (runError error) {
 					BaseURL:  model.BaseURL,
 					Endpoint: model.Endpoint,
 					APIKey:   model.APIKey,
+					Headers:  model.Headers,
 				})
 			},
 		})

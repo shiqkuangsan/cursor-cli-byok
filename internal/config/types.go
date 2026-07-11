@@ -27,13 +27,14 @@ type Config struct {
 }
 
 type Model struct {
-	Name          string `yaml:"name"`
-	Protocol      string `yaml:"protocol"`
-	BaseURL       string `yaml:"base_url"`
-	Endpoint      string `yaml:"endpoint"`
-	APIKey        string `yaml:"api_key,omitempty" json:"-"`
-	APIKeyEnv     string `yaml:"api_key_env,omitempty"`
-	UpstreamModel string `yaml:"upstream_model"`
+	Name          string            `yaml:"name"`
+	Protocol      string            `yaml:"protocol"`
+	BaseURL       string            `yaml:"base_url"`
+	Endpoint      string            `yaml:"endpoint"`
+	APIKey        string            `yaml:"api_key,omitempty" json:"-"`
+	APIKeyEnv     string            `yaml:"api_key_env,omitempty"`
+	Headers       map[string]string `yaml:"headers,omitempty" json:"-"`
+	UpstreamModel string            `yaml:"upstream_model"`
 }
 
 func (m Model) String() string {
@@ -41,14 +42,19 @@ func (m Model) String() string {
 	if m.APIKey != "" {
 		apiKey = "[REDACTED]"
 	}
+	headers := "[]"
+	if len(m.Headers) > 0 {
+		headers = fmt.Sprintf("[REDACTED:%d]", len(m.Headers))
+	}
 	return fmt.Sprintf(
-		"Model{Name:%q Protocol:%q BaseURL:%q Endpoint:%q APIKey:%q APIKeyEnv:%q UpstreamModel:%q}",
+		"Model{Name:%q Protocol:%q BaseURL:%q Endpoint:%q APIKey:%q APIKeyEnv:%q Headers:%s UpstreamModel:%q}",
 		m.Name,
 		m.Protocol,
 		m.BaseURL,
 		m.Endpoint,
 		apiKey,
 		m.APIKeyEnv,
+		headers,
 		m.UpstreamModel,
 	)
 }
@@ -79,18 +85,20 @@ type ResolvedModel struct {
 	Protocol      string
 	BaseURL       string
 	Endpoint      string
-	APIKey        string `json:"-" yaml:"-"`
+	APIKey        string            `json:"-" yaml:"-"`
+	Headers       map[string]string `json:"-" yaml:"-"`
 	UpstreamModel string
 }
 
 func (m ResolvedModel) String() string {
 	return fmt.Sprintf(
-		"ResolvedModel{Name:%q Protocol:%q BaseURL:%q Endpoint:%q APIKey:%q UpstreamModel:%q}",
+		"ResolvedModel{Name:%q Protocol:%q BaseURL:%q Endpoint:%q APIKey:%q Headers:%s UpstreamModel:%q}",
 		m.Name,
 		m.Protocol,
 		m.BaseURL,
 		m.Endpoint,
 		"[REDACTED]",
+		fmt.Sprintf("[REDACTED:%d]", len(m.Headers)),
 		m.UpstreamModel,
 	)
 }
@@ -131,6 +139,7 @@ func (c Config) ResolveModel(name string, getenv func(string) string) (ResolvedM
 			BaseURL:       model.BaseURL,
 			Endpoint:      model.Endpoint,
 			APIKey:        secret,
+			Headers:       cloneProviderHeaders(model.Headers),
 			UpstreamModel: model.UpstreamModel,
 		}, nil
 	}
@@ -223,11 +232,78 @@ func (c Config) Validate() error {
 		if model.APIKeyEnv == reservedDaemonLockEnv {
 			return errors.New("validate config: model api_key_env conflicts with an internal runtime variable")
 		}
+		if err := ValidateProviderHeaders(model.Headers); err != nil {
+			return fmt.Errorf("validate config: model headers: %w", err)
+		}
 	}
 	if _, exists := modelNames[c.DefaultModel]; !exists {
 		return errors.New("validate config: default_model does not exist")
 	}
 	return nil
+}
+
+var reservedProviderHeaders = map[string]struct{}{
+	"accept":              {},
+	"authorization":       {},
+	"connection":          {},
+	"content-length":      {},
+	"content-type":        {},
+	"host":                {},
+	"keep-alive":          {},
+	"proxy-authorization": {},
+	"proxy-connection":    {},
+	"te":                  {},
+	"trailer":             {},
+	"transfer-encoding":   {},
+	"upgrade":             {},
+}
+
+func ValidateProviderHeaders(headers map[string]string) error {
+	seen := make(map[string]struct{}, len(headers))
+	for name, value := range headers {
+		if name == "" || name != strings.TrimSpace(name) || !validHTTPHeaderName(name) {
+			return errors.New("provider header name is invalid")
+		}
+		lowerName := strings.ToLower(name)
+		if _, reserved := reservedProviderHeaders[lowerName]; reserved {
+			return fmt.Errorf("provider header %q is reserved", name)
+		}
+		if _, duplicate := seen[lowerName]; duplicate {
+			return fmt.Errorf("provider header %q is duplicated", name)
+		}
+		seen[lowerName] = struct{}{}
+		if value != strings.TrimSpace(value) || hasControlCharacters(value) {
+			return fmt.Errorf("provider header %q value is invalid", name)
+		}
+	}
+	return nil
+}
+
+func validHTTPHeaderName(name string) bool {
+	for index := 0; index < len(name); index++ {
+		character := name[index]
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' {
+			continue
+		}
+		switch character {
+		case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func cloneProviderHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(headers))
+	for name, value := range headers {
+		cloned[name] = value
+	}
+	return cloned
 }
 
 func isLoopbackProviderHost(host string) bool {

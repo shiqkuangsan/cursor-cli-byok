@@ -139,6 +139,9 @@ func (a App) runDoctor(args []string) int {
 }
 
 func probeProvider(parent context.Context, model config.ResolvedModel) (int, error) {
+	if err := config.ValidateProviderHeaders(model.Headers); err != nil {
+		return 0, errors.New("validate provider probe headers")
+	}
 	endpointURL, err := url.JoinPath(model.BaseURL, strings.TrimPrefix(model.Endpoint, "/"))
 	if err != nil {
 		return 0, errors.New("build provider probe URL")
@@ -149,6 +152,7 @@ func probeProvider(parent context.Context, model config.ResolvedModel) (int, err
 	if err != nil {
 		return 0, errors.New("create provider probe")
 	}
+	applyProviderHeaders(request, model.Headers)
 	request.Header.Set("Authorization", "Bearer "+model.APIKey)
 	client := &http.Client{
 		Timeout: doctorCheckTimeout,
@@ -170,6 +174,7 @@ func probeProvider(parent context.Context, model config.ResolvedModel) (int, err
 	if err != nil {
 		return 0, errors.New("create provider fallback probe")
 	}
+	applyProviderHeaders(fallback, model.Headers)
 	fallback.Header.Set("Authorization", "Bearer "+model.APIKey)
 	fallback.Header.Set("Content-Type", "application/json")
 	response, err = client.Do(fallback)
@@ -178,6 +183,12 @@ func probeProvider(parent context.Context, model config.ResolvedModel) (int, err
 	}
 	defer response.Body.Close()
 	return response.StatusCode, nil
+}
+
+func applyProviderHeaders(request *http.Request, headers map[string]string) {
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
 }
 
 func doctorProviderStatusOK(status int) bool {

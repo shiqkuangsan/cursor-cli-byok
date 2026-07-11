@@ -114,6 +114,32 @@ func TestAgentHandlerStreamsDirectBidiRun(t *testing.T) {
 	}
 }
 
+func TestAgentHandlerAcknowledgesBackgroundTaskCompletionWithoutExecuting(t *testing.T) {
+	var calls atomic.Int32
+	executor := AgentExecutorFunc(func(context.Context, protocol.RunRequest, func(AgentEvent) error) error {
+		calls.Add(1)
+		return nil
+	})
+	handler := NewAgentHandler(executor, AgentHandlerOptions{})
+
+	response := performDirectRunPayload(handler, agentTestBackgroundTaskCompletionPayload("conversation-1", "relay-gpt"))
+
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/connect+proto" {
+		t.Fatalf("Run status/content type = %d/%q body=%q", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("executor calls = %d, want 0", calls.Load())
+	}
+	frames := agentTestFrames(t, response.Body.Bytes())
+	wantEnded, err := protocol.EncodeTurnEnded(protocol.TokenUsage{})
+	if err != nil {
+		t.Fatalf("EncodeTurnEnded() error = %v", err)
+	}
+	if len(frames) != 2 || frames[0].flag != 0 || !bytes.Equal(frames[0].payload, wantEnded) || frames[1].flag != 0x02 {
+		t.Fatalf("metadata Run frames = %#v", frames)
+	}
+}
+
 func TestDirectRunWaitsForClientHalfCloseAfterServerEnd(t *testing.T) {
 	executor := AgentExecutorFunc(func(ctx context.Context, run protocol.RunRequest, emit func(AgentEvent) error) error {
 		return emit(AgentEvent{Kind: AgentEventTextDelta, Text: "done"})
@@ -1085,6 +1111,24 @@ func agentTestClientPayloadWithMessageID(conversationID, modelID, text, messageI
 	model := agentTestString(nil, 1, modelID)
 	run := agentTestMessage(nil, 2, action)
 	run = agentTestMessage(run, 3, model)
+	run = agentTestString(run, 5, conversationID)
+	return agentTestMessage(nil, 1, run)
+}
+
+func agentTestBackgroundTaskCompletionPayload(conversationID, modelID string) []byte {
+	completion := agentTestString(nil, 1, "task-1")
+	completion = agentTestVarint(completion, 2, 1)
+	completion = agentTestVarint(completion, 3, 1)
+	completion = agentTestString(completion, 4, "Append once to shell-count.txt")
+	completion = agentTestVarint(completion, 8, 1)
+	completion = agentTestString(completion, 10, "call-shell-1")
+	completionAction := agentTestMessage(nil, 1, completion)
+	action := agentTestMessage(nil, 12, completionAction)
+	model := agentTestString(nil, 1, modelID)
+	run := agentTestMessage(nil, 1, nil)
+	run = agentTestMessage(run, 2, action)
+	run = agentTestMessage(run, 3, model)
+	run = agentTestMessage(run, 4, nil)
 	run = agentTestString(run, 5, conversationID)
 	return agentTestMessage(nil, 1, run)
 }

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/textproto"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -20,6 +21,7 @@ type modelOptions struct {
 	endpoint       string
 	apiKey         string
 	apiKeyEnv      string
+	headers        []string
 	upstreamModel  string
 	nonInteractive bool
 }
@@ -38,6 +40,7 @@ Model flags:
   --upstream-model <model>
   --api-key-env <environment-variable>  (preferred)
   --api-key <key>                       (stored inline)
+  --header <name:value>                 (repeatable)
   --non-interactive
 `
 
@@ -344,6 +347,10 @@ func parseModelOptions(name string, args []string, allowForce bool) (modelOption
 	fs.StringVar(&options.upstreamModel, "upstream-model", "", "provider model")
 	fs.StringVar(&options.apiKey, "api-key", "", "inline API key")
 	fs.StringVar(&options.apiKeyEnv, "api-key-env", "", "API key environment variable")
+	fs.Func("header", "provider header (repeatable)", func(value string) error {
+		options.headers = append(options.headers, value)
+		return nil
+	})
 	fs.BoolVar(&options.nonInteractive, "non-interactive", false, "disable prompts")
 	if allowForce {
 		fs.BoolVar(&force, "force", false, "replace existing configuration")
@@ -358,6 +365,10 @@ func parseModelOptions(name string, args []string, allowForce bool) (modelOption
 }
 
 func (o modelOptions) model() (config.Model, error) {
+	headers, err := parseProviderHeaders(o.headers)
+	if err != nil {
+		return config.Model{}, err
+	}
 	model := config.Model{
 		Name:          o.name,
 		Protocol:      config.ProtocolOpenAI,
@@ -365,6 +376,7 @@ func (o modelOptions) model() (config.Model, error) {
 		Endpoint:      o.endpoint,
 		APIKey:        o.apiKey,
 		APIKeyEnv:     o.apiKeyEnv,
+		Headers:       headers,
 		UpstreamModel: o.upstreamModel,
 	}
 	cfg := config.Config{
@@ -376,4 +388,31 @@ func (o modelOptions) model() (config.Model, error) {
 		return config.Model{}, err
 	}
 	return model, nil
+}
+
+func parseProviderHeaders(values []string) (map[string]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	headers := make(map[string]string, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		name, value, found := strings.Cut(raw, ":")
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if !found || name == "" {
+			return nil, errors.New("provider header must use name:value syntax")
+		}
+		canonicalName := textproto.CanonicalMIMEHeaderKey(name)
+		lookupName := strings.ToLower(canonicalName)
+		if _, duplicate := seen[lookupName]; duplicate {
+			return nil, fmt.Errorf("provider header %q is duplicated", canonicalName)
+		}
+		seen[lookupName] = struct{}{}
+		headers[canonicalName] = value
+	}
+	if err := config.ValidateProviderHeaders(headers); err != nil {
+		return nil, err
+	}
+	return headers, nil
 }

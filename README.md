@@ -19,11 +19,16 @@ OpenAI-compatible endpoints, all eight built-in tools, streamed Shell, dynamic
 MCP, and `doctor`, `status`, and `stop`. Official `cursor-agent`
 `2026.07.09-a3815c0` passed the complete isolated print and interactive PTY E2E
 suite as a non-root user on Linux arm64 and x86_64, without Cursor IDE or
-login. The prior Darwin arm64 baseline remains `2026.07.08-0c04a8a`. Static
-Linux amd64/arm64 release builds, a checksummed installer, CI, and release
-automation are present. Release gates execute the final tagged amd64 artifact
-against the official CLI and run both tagged architectures through the Linux
-lifecycle smoke before upload; see
+login. A separate headless Linux arm64 VPS run with `2026.07.08-0c04a8a` also
+passed against a real loopback OpenAI-compatible relay, including Responses,
+Chat Completions, Read, Write, foreground-to-background Shell completion, and
+an interactive PTY. The same VPS then passed three independent official-Cursor
+QA runs through Sub2API `v0.1.150` and `gpt-5.6-luna`, using an explicit
+alias-scoped compatibility User-Agent. The prior Darwin arm64 baseline remains
+`2026.07.08-0c04a8a`. Static Linux amd64/arm64 release builds, a checksummed
+installer, CI, and release automation are present. Release gates execute the
+final tagged amd64 artifact against the official CLI and run both tagged
+architectures through the Linux lifecycle smoke before upload; see
 [docs/compatibility.md](docs/compatibility.md).
 
 ## Installation
@@ -154,6 +159,32 @@ go run ./cmd/cursor-cli-byok config init --non-interactive \
 Chat Completions uses `--endpoint /v1/chat/completions`. Inline
 `--api-key` storage is supported, but `--api-key-env` avoids putting a secret
 in shell history and is the recommended mode.
+
+Some relays use the HTTP client identity when selecting upstream model access.
+Attach non-secret compatibility headers to only the affected alias with a
+repeatable `--header` flag:
+
+```sh
+export SUB2_API_KEY='replace-me'
+
+go run ./cmd/cursor-cli-byok config add --non-interactive \
+  --name sub2-luna \
+  --base-url http://127.0.0.1:8100 \
+  --endpoint /v1/responses \
+  --upstream-model gpt-5.6-luna \
+  --api-key-env SUB2_API_KEY \
+  --header 'User-Agent: codex_cli_rs/0.144.1 (Ubuntu 22.4.0; x86_64) xterm-256color'
+```
+
+Configured headers are sent by both inference requests and the `doctor`
+provider probe; they are not injected into `cursor-agent`. Header values are
+stored only in the mode-0600 config and are redacted from formatted and JSON
+diagnostics. Use `api_key_env` for authentication rather than a custom header.
+`Authorization`, `Accept`, `Content-Type`, `Host`, and hop-by-hop headers are
+reserved so an alias cannot override protocol or redirect-sensitive behavior.
+The Sub2API version-specific reason for the example is recorded in
+[docs/compatibility.md](docs/compatibility.md) and
+[docs/upstream-reference.md](docs/upstream-reference.md).
 
 The configured `base_url` is combined with the selected endpoint. For example,
 `https://relay.example.com` and `/v1/responses` produce

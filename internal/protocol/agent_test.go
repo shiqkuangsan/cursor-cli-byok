@@ -83,6 +83,34 @@ func TestDecodeAgentClientMessageReadsRequestedModel(t *testing.T) {
 	}
 }
 
+func TestDecodeAgentClientMessageReadsBackgroundTaskCompletionRun(t *testing.T) {
+	completion := testString(nil, 1, "task-1")
+	completion = testVarint(completion, 2, 1)
+	completion = testVarint(completion, 3, 1)
+	completion = testString(completion, 4, "Append once to shell-count.txt")
+	completion = testVarint(completion, 8, 1)
+	completion = testString(completion, 10, "call-shell-1")
+	completionAction := testMessage(1, completion)
+	action := testMessage(12, completionAction)
+	model := testString(nil, 1, "relay-gpt")
+	run := testMessage(1, nil)
+	run = testMessageInto(run, 2, action)
+	run = testMessageInto(run, 3, model)
+	run = testMessageInto(run, 4, nil)
+	run = testString(run, 5, "conversation-1")
+
+	message, err := DecodeAgentClientMessage(testMessage(1, run))
+	if err != nil {
+		t.Fatalf("DecodeAgentClientMessage() error = %v", err)
+	}
+	if message.Kind != ClientMessageRun || message.Run == nil {
+		t.Fatalf("client message = %#v, want metadata Run", message)
+	}
+	if message.Run.ConversationID != "conversation-1" || message.Run.ModelID != "relay-gpt" || message.Run.UserText != "" || !message.Run.MetadataOnly {
+		t.Fatalf("metadata run = %#v", *message.Run)
+	}
+}
+
 func TestDecodeBidiAppendRequestRejectsMalformedOrIncompleteMessages(t *testing.T) {
 	validRun := testRunClientMessage("conversation-1", "relay-gpt", "hello", "message-1")
 	validID := testMessage(1, []byte("request-1"))

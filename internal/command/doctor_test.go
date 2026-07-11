@@ -189,3 +189,28 @@ func doctorTestApp(t *testing.T, providerURL, apiKey, cursorVersion string) (App
 	}
 	return app, &stdout, &stderr
 }
+
+func TestProbeProviderSendsConfiguredHeaders(t *testing.T) {
+	var gotUserAgent string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		gotUserAgent = request.Header.Get("User-Agent")
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer server.Close()
+
+	status, err := probeProvider(context.Background(), config.ResolvedModel{
+		BaseURL:  server.URL,
+		Endpoint: config.EndpointResponses,
+		APIKey:   "provider-key",
+		Headers:  map[string]string{"User-Agent": "cursor-cli-byok-doctor"},
+	})
+	if err != nil {
+		t.Fatalf("probeProvider() error = %v", err)
+	}
+	if status != http.StatusMethodNotAllowed {
+		t.Fatalf("probeProvider() status = %d, want %d", status, http.StatusMethodNotAllowed)
+	}
+	if gotUserAgent != "cursor-cli-byok-doctor" {
+		t.Fatalf("probeProvider() User-Agent = %q", gotUserAgent)
+	}
+}

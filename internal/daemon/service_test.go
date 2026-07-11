@@ -178,6 +178,9 @@ func TestRunServiceDefaultHandlerStreamsConfiguredOpenAIEndpoints(t *testing.T) 
 				if request.URL.Path != test.endpoint || request.Header.Get("Authorization") != "Bearer provider-key" {
 					providerFailure = request.URL.Path + " " + request.Header.Get("Authorization")
 				}
+				if request.Header.Get("User-Agent") != "cursor-cli-byok-acceptance" {
+					providerFailure = "configured provider header was not forwarded"
+				}
 				var body struct {
 					Model  string            `json:"model"`
 					Stream bool              `json:"stream"`
@@ -216,7 +219,7 @@ func TestRunServiceDefaultHandlerStreamsConfiguredOpenAIEndpoints(t *testing.T) 
 				DefaultModel: "relay-gpt",
 				Models: []config.Model{{
 					Name: "relay-gpt", Protocol: config.ProtocolOpenAI, BaseURL: providerServer.URL,
-					Endpoint: test.endpoint, APIKey: "provider-key", UpstreamModel: "upstream-model",
+					Endpoint: test.endpoint, APIKey: "provider-key", Headers: map[string]string{"User-Agent": "cursor-cli-byok-acceptance"}, UpstreamModel: "upstream-model",
 				}},
 			}); err != nil {
 				t.Fatalf("Save(config) error = %v", err)

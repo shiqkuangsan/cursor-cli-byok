@@ -19,6 +19,52 @@ func TestConfigValidateAcceptsValidConfiguration(t *testing.T) {
 	}
 }
 
+func TestConfigValidateAcceptsAndResolvesProviderHeaders(t *testing.T) {
+	cfg := validConfig()
+	cfg.Models[0].Headers = map[string]string{
+		"OpenAI-Beta": "responses=experimental",
+		"User-Agent":  "codex_cli_rs/0.144.1 (Linux; aarch64)",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	resolved, err := cfg.ResolveModel("", envLookup(map[string]string{"RELAY_API_KEY": "secret"}))
+	if err != nil {
+		t.Fatalf("ResolveModel() error = %v", err)
+	}
+	if !reflect.DeepEqual(resolved.Headers, cfg.Models[0].Headers) {
+		t.Fatalf("ResolveModel() headers = %#v, want %#v", resolved.Headers, cfg.Models[0].Headers)
+	}
+	resolved.Headers["User-Agent"] = "changed"
+	if cfg.Models[0].Headers["User-Agent"] == "changed" {
+		t.Fatal("ResolveModel() returned an aliased headers map")
+	}
+}
+
+func TestConfigValidateRejectsUnsafeProviderHeaders(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers map[string]string
+	}{
+		{name: "invalid name", headers: map[string]string{"Bad Header": "value"}},
+		{name: "control in value", headers: map[string]string{"X-Relay": "one\ntwo"}},
+		{name: "reserved authorization", headers: map[string]string{"Authorization": "other-secret"}},
+		{name: "reserved content type", headers: map[string]string{"Content-Type": "text/plain"}},
+		{name: "reserved accept", headers: map[string]string{"Accept": "application/json"}},
+		{name: "reserved host", headers: map[string]string{"Host": "other.example.com"}},
+		{name: "case insensitive duplicate", headers: map[string]string{"User-Agent": "one", "user-agent": "two"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Models[0].Headers = tt.headers
+			requireValidationErrorContains(t, cfg, "headers")
+		})
+	}
+}
+
 func TestConfigValidateRejectsDaemonLockEnvironmentAsAPIKeySource(t *testing.T) {
 	cfg := validConfig()
 	cfg.Models[0].APIKey = ""
@@ -397,13 +443,18 @@ func TestResolvedModelStringOutputRedactsAPIKey(t *testing.T) {
 
 func TestConfigAndModelStringOutputRedactsAPIKey(t *testing.T) {
 	const secret = "sk-config-string-secret"
+	const headerSecret = "header-value-secret"
 	cfg := validConfig()
 	cfg.Models[0].APIKeyEnv = ""
 	cfg.Models[0].APIKey = secret
+	cfg.Models[0].Headers = map[string]string{"X-Relay-Token": headerSecret}
 
 	output := fmt.Sprintf("%v\n%+v\n%#v\n%v\n%+v\n%#v", cfg, cfg, cfg, cfg.Models[0], cfg.Models[0], cfg.Models[0])
 	if strings.Contains(output, secret) {
 		t.Fatalf("formatted configuration leaked API key: %q", output)
+	}
+	if strings.Contains(output, headerSecret) {
+		t.Fatalf("formatted configuration leaked provider header: %q", output)
 	}
 	if !strings.Contains(output, "REDACTED") {
 		t.Fatalf("formatted configuration = %q, want redaction marker", output)
@@ -412,9 +463,11 @@ func TestConfigAndModelStringOutputRedactsAPIKey(t *testing.T) {
 
 func TestModelJSONOutputOmitsInlineAPIKey(t *testing.T) {
 	const secret = "sk-json-secret"
+	const headerSecret = "header-json-secret"
 	model := validConfig().Models[0]
 	model.APIKeyEnv = ""
 	model.APIKey = secret
+	model.Headers = map[string]string{"X-Relay-Token": headerSecret}
 
 	data, err := json.Marshal(model)
 	if err != nil {
@@ -422,6 +475,9 @@ func TestModelJSONOutputOmitsInlineAPIKey(t *testing.T) {
 	}
 	if strings.Contains(string(data), secret) {
 		t.Fatalf("json.Marshal() leaked inline API key: %s", data)
+	}
+	if strings.Contains(string(data), headerSecret) {
+		t.Fatalf("json.Marshal() leaked provider header: %s", data)
 	}
 }
 

@@ -28,6 +28,12 @@ func TestResponsesStreamSendsContractAndEmitsCanonicalEvents(t *testing.T) {
 		if got := request.Header.Get("Accept"); got != "text/event-stream" {
 			requestFailure = "accept header mismatch"
 		}
+		if got := request.Header.Get("User-Agent"); got != "codex_cli_rs/0.144.1 (Linux; aarch64)" {
+			requestFailure = "custom user-agent header mismatch"
+		}
+		if got := request.Header.Get("OpenAI-Beta"); got != "responses=experimental" {
+			requestFailure = "custom beta header mismatch"
+		}
 		var body struct {
 			Model  string            `json:"model"`
 			Input  []json.RawMessage `json:"input"`
@@ -54,9 +60,13 @@ func TestResponsesStreamSendsContractAndEmitsCanonicalEvents(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, Options{
-		BaseURL:       server.URL + "/gateway/",
-		Endpoint:      config.EndpointResponses,
-		APIKey:        "test-api-key",
+		BaseURL:  server.URL + "/gateway/",
+		Endpoint: config.EndpointResponses,
+		APIKey:   "test-api-key",
+		Headers: map[string]string{
+			"OpenAI-Beta": "responses=experimental",
+			"User-Agent":  "codex_cli_rs/0.144.1 (Linux; aarch64)",
+		},
 		HTTPClient:    server.Client(),
 		MaxEventBytes: 64 * 1024,
 	})
