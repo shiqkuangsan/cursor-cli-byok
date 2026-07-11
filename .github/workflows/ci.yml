@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make fmt-check test vet shell-test cross-build
+      - name: Run Linux binary lifecycle smoke
+        run: BYOK_BINARY="$PWD/dist/cursor-cli-byok-linux-amd64" ./test/linux-smoke/run.sh
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make race
+
+  linux-e2e:
+    runs-on: ubuntu-latest
+    needs: [verify, race]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install official Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS -o /tmp/install-cursor.sh
+          chmod 0700 /tmp/install-cursor.sh
+          /tmp/install-cursor.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run verified Linux E2E
+        run: |
+          EXPECTED_CURSOR_VERSION=$(tail -n 1 internal/cursorcli/verified_versions.txt)
+          E2E_EXPECT_CURSOR_VERSION="$EXPECTED_CURSOR_VERSION" make linux-e2e

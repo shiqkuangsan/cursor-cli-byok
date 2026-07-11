@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify
+        run: make verify
+      - name: Install official Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS -o /tmp/install-cursor.sh
+          chmod 0700 /tmp/install-cursor.sh
+          /tmp/install-cursor.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build release assets
+        run: make release VERSION="$GITHUB_REF_NAME"
+      - name: Build Linux E2E helper
+        run: CGO_ENABLED=0 go build -buildvcs=false -trimpath -o /tmp/cursor-cli-byok-e2e-linux-amd64 ./test/e2e
+      - name: Run tagged Linux amd64 lifecycle smoke
+        run: BYOK_BINARY="$PWD/dist/cursor-cli-byok-linux-amd64" ./test/linux-smoke/run.sh
+      - name: Enable arm64 emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Run tagged Linux arm64 lifecycle smoke
+        run: |
+          docker run --rm --platform linux/arm64 \
+            --user node \
+            --env HOME=/home/node \
+            --mount type=bind,src="$PWD",dst=/src,readonly \
+            node:22-bookworm-slim \
+            bash -lc 'BYOK_BINARY=/src/dist/cursor-cli-byok-linux-arm64 /src/test/linux-smoke/run.sh'
+      - name: Run tagged Linux amd64 E2E
+        run: |
+          EXPECTED_CURSOR_VERSION=$(tail -n 1 internal/cursorcli/verified_versions.txt)
+          E2E_EXPECT_CURSOR_VERSION="$EXPECTED_CURSOR_VERSION" \
+          E2E_BYOK_BINARY="$PWD/dist/cursor-cli-byok-linux-amd64" \
+          E2E_HELPER_BINARY=/tmp/cursor-cli-byok-e2e-linux-amd64 \
+          E2E_REQUIRE_LINUX=1 \
+          ./test/e2e/run.sh
+      - name: Verify release checksums
+        working-directory: dist
+        run: sha256sum -c checksums.txt
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/cursor-cli-byok-linux-amd64 \
+            dist/cursor-cli-byok-linux-arm64 \
+            dist/checksums.txt \
+            --verify-tag \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"
