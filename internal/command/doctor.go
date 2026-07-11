@@ -160,12 +160,31 @@ func probeProvider(parent context.Context, model config.ResolvedModel) (int, err
 	if err != nil {
 		return 0, errors.New("provider probe failed")
 	}
+	status := response.StatusCode
+	_ = response.Body.Close()
+	if status != http.StatusNotFound {
+		return status, nil
+	}
+
+	fallback, err := http.NewRequestWithContext(checkContext, http.MethodPost, endpointURL, strings.NewReader("{}"))
+	if err != nil {
+		return 0, errors.New("create provider fallback probe")
+	}
+	fallback.Header.Set("Authorization", "Bearer "+model.APIKey)
+	fallback.Header.Set("Content-Type", "application/json")
+	response, err = client.Do(fallback)
+	if err != nil {
+		return 0, errors.New("provider fallback probe failed")
+	}
 	defer response.Body.Close()
 	return response.StatusCode, nil
 }
 
 func doctorProviderStatusOK(status int) bool {
-	return status == http.StatusMethodNotAllowed || status >= 200 && status < 300
+	return status == http.StatusBadRequest ||
+		status == http.StatusMethodNotAllowed ||
+		status == http.StatusUnprocessableEntity ||
+		status >= 200 && status < 300
 }
 
 func validDoctorAPIKey(value string) bool {

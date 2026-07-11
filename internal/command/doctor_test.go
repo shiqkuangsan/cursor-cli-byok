@@ -3,6 +3,7 @@ package command
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,6 +60,44 @@ func TestDoctorWarnsWithoutFailingForUntestedCursorVersion(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "cursor-agent: warn (untested 2026.07.09-new-build)") || !strings.Contains(stdout.String(), "doctor: ok") {
 		t.Fatalf("stdout = %q, want non-fatal untested-version warning", stdout.String())
+	}
+}
+
+func TestDoctorFallsBackToEmptyPOSTWhenHeadRouteIsMissing(t *testing.T) {
+	var methods []string
+	providerServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		methods = append(methods, request.Method)
+		if request.Header.Get("Authorization") != "Bearer doctor-secret" {
+			t.Errorf("provider authorization is missing")
+		}
+		switch request.Method {
+		case http.MethodHead:
+			writer.WriteHeader(http.StatusNotFound)
+		case http.MethodPost:
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Errorf("ReadAll() error = %v", err)
+			}
+			if string(body) != "{}" || request.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("provider fallback body/content-type = %q/%q", body, request.Header.Get("Content-Type"))
+			}
+			writer.WriteHeader(http.StatusBadRequest)
+		default:
+			t.Errorf("unexpected provider method %s", request.Method)
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer providerServer.Close()
+	app, stdout, stderr := doctorTestApp(t, providerServer.URL, "doctor-secret", "2026.07.08-0c04a8a")
+
+	if exitCode := app.Run([]string{"doctor"}); exitCode != 0 {
+		t.Fatalf("doctor exit = %d stderr=%q stdout=%q", exitCode, stderr.String(), stdout.String())
+	}
+	if strings.Join(methods, ",") != "HEAD,POST" {
+		t.Fatalf("provider methods = %v, want HEAD then POST", methods)
+	}
+	if output := stdout.String() + stderr.String(); !strings.Contains(output, "provider: ok (HTTP 400)") || strings.Contains(output, "doctor-secret") || strings.Contains(output, providerServer.URL) {
+		t.Fatalf("doctor output = %q", output)
 	}
 }
 

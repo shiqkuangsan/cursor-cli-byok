@@ -123,9 +123,12 @@ go run ./cmd/cursor-cli-byok stop
 ```
 
 `doctor` validates the default model configuration and API key availability,
-checks the official `cursor-agent` version, sends a body-free `HEAD` request to
-the configured provider endpoint, and inspects daemon health. It reports only
-sanitized status information and never prints the provider URL or API key.
+checks the official `cursor-agent` version, probes the configured provider
+endpoint, and inspects daemon health. The probe starts with a body-free `HEAD`.
+If an otherwise compatible relay returns 404 for `HEAD`, `doctor` sends one
+empty JSON POST with no model or input and accepts only an invalid-request
+response as route evidence; it cannot trigger inference. Diagnostics remain
+sanitized and never print the provider URL or API key.
 
 ## Configuration
 

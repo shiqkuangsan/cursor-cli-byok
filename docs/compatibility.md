@@ -34,6 +34,8 @@ provider, and MCP server. It does not use an existing Cursor login or Cursor
 IDE state. It verifies:
 
 - `doctor`, `status`, `stop`, and real `--list-models` discovery;
+- provider reachability through body-free HEAD plus an inference-free empty
+  POST fallback for OpenAI-compatible relays that return 404 to HEAD;
 - a real PTY interactive run, including fresh-workspace trust and clean
   double-Ctrl+C exit, in addition to non-interactive `--print`;
 - Responses and Chat Completions streaming;
@@ -106,7 +108,7 @@ Last audited: 2026-07-11. A `Proved` row has direct current-worktree evidence;
 | Custom Responses and Chat Completions streaming | Fake-provider contracts plus official Linux Cursor print and PTY runs through both configured endpoint types | Proved |
 | Multi-pass built-in and MCP tools | Unit/race coverage for all eight built-ins and terminal late-result rejection; real Darwin all-tool coverage; official Linux Read/Write/Shell/dynamic-MCP continuation, duplicate side-effect checks, and bounded MCP discovery | Proved |
 | Secure config and secret handling | Atomic mode-0600 config/state, mode-0700 directories, remote-HTTP rejection, CA-pinned controls, in-memory key rotation, child-env stripping, and E2E log/argv/process checks | Proved |
-| `doctor`, `status`, and `stop` | Command tests plus isolated real-CLI E2E, including version reporting, authenticated daemon lifecycle, state-before-PID-reaping completion, and lock-guarded replacement-state preservation across both cleanup race windows | Proved |
+| `doctor`, `status`, and `stop` | Command tests plus isolated real-CLI E2E, including version reporting, inference-free provider fallback, authenticated daemon lifecycle, state-before-PID-reaping completion, and lock-guarded replacement-state preservation across both cleanup race windows | Proved |
 | Upstream maintenance documentation | Independence policy, reviewed commit ledger, protocol boundary, and compatibility/version policy are present and current | Proved |
 | One-command non-root install and release gates | Five installer scenarios, checksum-preserving atomic replacement, workflow structure tests, tagged amd64/arm64 lifecycle smokes, and tagged amd64 official Linux E2E before upload | Proved |
 | Official Cursor CLI on Linux VPS-equivalent host | Complete `E2E_REQUIRE_LINUX=1` runs on arm64 and x86_64 with fresh HOME/XDG, no IDE/login, both endpoints, PTY/print/tools/MCP/concurrency/cancellation/fail-closed assertions | Proved |
