@@ -168,3 +168,5 @@ else
     fail 'the official Cursor installer completed without installing cursor-agent'
   fi
 fi
+
+printf 'Next: export OPENAI_API_KEY, then run cursor-cli-byok config init\n'

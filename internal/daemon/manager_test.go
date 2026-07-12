@@ -225,6 +225,40 @@ func TestManagerStopsChildAfterStartupTimeout(t *testing.T) {
 	}
 }
 
+func TestManagerStopsChildWhenDetachFails(t *testing.T) {
+	directory := t.TempDir()
+	store := NewStateStore(filepath.Join(directory, "daemon.json"))
+	want := validState()
+	want.PID = os.Getpid()
+	child := &fakeChild{pid: want.PID, detachError: errors.New("deterministic detach failure")}
+	manager := Manager{
+		Store:    store,
+		LockPath: filepath.Join(directory, "daemon.lock"),
+		Probe:    ProbeFunc(func(context.Context, State) error { return nil }),
+		Starter: StarterFunc(func(context.Context, *os.File) (Child, error) {
+			if err := store.Save(want); err != nil {
+				return nil, err
+			}
+			return child, nil
+		}),
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+		PollInterval: 5 * time.Millisecond,
+	}
+
+	_, err := manager.Ensure(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "detach background child") {
+		t.Fatalf("Ensure() error = %v, want detach failure", err)
+	}
+	if child.detachCalls.Load() != 1 {
+		t.Fatalf("Detach() calls = %d, want 1", child.detachCalls.Load())
+	}
+	if child.stopCalls.Load() != 1 {
+		t.Fatalf("Stop() calls = %d, want 1", child.stopCalls.Load())
+	}
+}
+
 func TestExecStarterLaunchesBackgroundChildWithInheritedLockAndSanitizedEnvironment(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix descriptor inheritance is required")
@@ -307,6 +341,7 @@ type fakeChild struct {
 	pid         int
 	stopCalls   atomic.Int32
 	detachCalls atomic.Int32
+	detachError error
 }
 
 func waitForFile(t *testing.T, path string, timeout time.Duration) {
@@ -334,7 +369,7 @@ func (c *fakeChild) Stop(context.Context) error {
 
 func (c *fakeChild) Detach() error {
 	c.detachCalls.Add(1)
-	return nil
+	return c.detachError
 }
 
 func TestManagerBoundsFailedChildShutdown(t *testing.T) {

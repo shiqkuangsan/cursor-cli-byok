@@ -55,6 +55,13 @@ func runE2EHelper(
 	if getenv == nil {
 		getenv = os.Getenv
 	}
+	if len(args) >= 1 && args[0] == "output-check" {
+		if err := runHeadlessOutputCheck(args[1:], stdin); err != nil {
+			_, _ = fmt.Fprintf(stderr, "cursor-cli-byok-e2e: output-check: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if len(args) == 1 && args[0] == "mcp" {
 		if err := runMCPServer(stdin, stdout); err != nil {
 			_, _ = fmt.Fprintln(stderr, "cursor-cli-byok-e2e: MCP server stopped")
@@ -74,7 +81,7 @@ func runE2EHelper(
 		}
 		return 0
 	}
-	_, _ = fmt.Fprintln(stderr, "usage: cursor-cli-byok-e2e <provider|mcp>")
+	_, _ = fmt.Fprintln(stderr, "usage: cursor-cli-byok-e2e <output-check|provider|mcp>")
 	return 2
 }
 

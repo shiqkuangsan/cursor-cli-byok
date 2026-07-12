@@ -125,6 +125,14 @@ func TestFakeProviderStreamsResponsesTextAndReadContinuation(t *testing.T) {
 	if !strings.Contains(text, "E2E_RESPONSES_OK") || !strings.Contains(text, "response.completed") {
 		t.Fatalf("text response = %q", text)
 	}
+	jsonText := postProviderRequest(t, server.URL+"/v1/responses", "e2e-secret", `{
+		"model":"e2e-model",
+		"input":[{"role":"user","content":"E2E_JSON"}],
+		"stream":true
+	}`)
+	if !strings.Contains(jsonText, "E2E_JSON_OK") || !strings.Contains(jsonText, "response.completed") {
+		t.Fatalf("JSON response = %q", jsonText)
+	}
 
 	first := postProviderRequest(t, server.URL+"/v1/responses", "e2e-secret", `{
 		"model":"e2e-model",

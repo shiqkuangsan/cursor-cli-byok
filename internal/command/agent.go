@@ -2,7 +2,9 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/shiqkuangsan/cursor-cli-byok/internal/buildinfo"
@@ -19,6 +21,9 @@ func (a App) runAgent(args []string) int {
 	}
 	cfg, err := config.NewStore(runtimePaths.ConfigFile).Load()
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return a.fail(errors.New("launch Cursor CLI: configuration not found; run cursor-cli-byok config init"))
+		}
 		return a.fail(fmt.Errorf("launch Cursor CLI: %w", err))
 	}
 	selectedModel, forwardedArguments, err := cursorcli.SplitModelArgument(cfg.DefaultModel, args)

@@ -9,8 +9,9 @@ claim.
 
 | Environment | Cursor CLI | Evidence | Status |
 | --- | --- | --- | --- |
-| Darwin arm64 | `2026.07.08-0c04a8a` | Full `test/e2e/run.sh` against the real CLI with a fresh HOME/XDG tree | Passed 2026-07-11 |
-| Linux arm64 VPS | `2026.07.08-0c04a8a` | Installed current-worktree static ELF against a real loopback OpenAI-compatible relay; Responses/Chat text and Shell, Read/Write, PTY, doctor, model discovery, and three `gpt-5.6-luna` QA turns through Sub2API `v0.1.150` | Passed 2026-07-12 |
+| Darwin arm64 | `2026.07.08-0c04a8a` | Full `test/e2e/run.sh` against the real CLI with a fresh HOME/XDG tree, including parser-validated `-p` text, JSON, and partial stream JSON stdout | Passed 2026-07-12 |
+| Linux arm64 VPS | `2026.07.08-0c04a8a` | Full isolated E2E with parser-validated headless text/JSON/stream JSON, plus the current-worktree static ELF against a real loopback OpenAI-compatible relay and three `gpt-5.6-luna` QA turns through Sub2API `v0.1.150` | Passed 2026-07-12 |
+| Linux arm64 VPS, `v0.1.0-rc.1` | `2026.07.08-0c04a8a` | Transferred RC artifact passed checksum verification, the complete isolated official-CLI E2E, and a fresh HOME/XDG JSON call through loopback Sub2API to `gpt-5.6-luna` | Passed 2026-07-12 |
 | Linux x86_64 | `2026.07.09-a3815c0` | Full `test/e2e/run.sh` against the official CLI as a non-root user in a `linux/amd64` Debian container | Passed 2026-07-11 |
 | Linux arm64 | `2026.07.09-a3815c0` | Full `test/e2e/run.sh` against the official CLI as a non-root user in a native Debian arm64 container | Passed 2026-07-11 |
 | Linux arm64 container | fake child, not Cursor | Non-root release-ELF wrapper/daemon lifecycle via `test/linux-smoke/run.sh` | Passed 2026-07-11; not protocol evidence |
@@ -55,6 +56,38 @@ three distinct `/v1/responses` requests with `stream=true`,
 `model=gpt-5.6-luna`, account 2, and HTTP 200. The observed request latencies
 were 2828 ms, 1315 ms, and 4476 ms.
 
+## v0.1.0-rc.1 Rehearsal
+
+The local release rehearsal built `v0.1.0-rc.1` with a Go 1.26.4 toolchain.
+Both amd64 and arm64 outputs were stripped, statically linked ELF executables
+with mode `0755`; their generated SHA-256 manifest verified before and after
+transfer. Each binary reported the embedded version `v0.1.0-rc.1` in its
+matching Linux userspace.
+
+The final post-review rehearsal produced:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `cursor-cli-byok-linux-amd64` | `9bd9efa7b6282fa2f876570f1aa34ffec112e0a430d544fc583990fd4cb338da` |
+| `cursor-cli-byok-linux-arm64` | `522f4c2012c8f3c7e282c1e34a317fa90a1a4eab53cae0df97697a6f569de330` |
+
+Both artifacts passed `test/linux-smoke/run.sh` as UID 1000 in Linux containers:
+native arm64 and emulated x86_64. The arm64 artifact then passed the complete
+official-Cursor E2E on the authorized Linux VPS, including PTY, text/JSON/stream
+JSON, tools, MCP, concurrency, cancellation, fail-closed provider errors,
+side-effect de-duplication, and secret/argv checks.
+
+A separate real-provider run used another fresh HOME/XDG tree with no Cursor IDE
+or login state. Minimal setup applied the Responses endpoint, upstream-model
+alias, and `OPENAI_API_KEY` environment defaults, then called loopback Sub2API
+with upstream model `gpt-5.6-luna`. `doctor` passed, the official CLI exited 0,
+and the machine JSON validator accepted the exact sanitized result
+`RC_REAL_PROVIDER_OK`. Config and daemon state remained mode `0600`, and the key
+did not appear in acceptance artifacts.
+
+This was a local release-candidate rehearsal only. No Git remote, tag, GitHub
+release, or upload was created.
+
 ## Acceptance Coverage
 
 The E2E runner creates an isolated HOME, XDG configuration, workspace, daemon,
@@ -65,8 +98,11 @@ IDE state. It verifies:
 - provider reachability through body-free HEAD plus an inference-free empty
   POST fallback for OpenAI-compatible relays that return 404 to HEAD;
 - a real PTY interactive run, including fresh-workspace trust and clean
-  double-Ctrl+C exit, in addition to non-interactive `--print`;
-- Responses and Chat Completions streaming;
+  double-Ctrl+C exit, plus short-form headless `-p` text output;
+- one successful JSON result object and ordered partial/final NDJSON events,
+  parsed separately from stderr without pinning IDs, timestamps, or token values;
+- Responses and Chat Completions streaming, with provider failure returning
+  nonzero and never writing a successful terminal result to machine stdout;
 - real Cursor-side Read, Write, Shell, and dynamic stdio MCP execution;
 - multi-pass tool-result continuation and concurrent conversation isolation;
 - signal cancellation reaching the provider request;

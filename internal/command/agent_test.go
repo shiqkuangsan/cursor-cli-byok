@@ -48,6 +48,33 @@ func TestSelectedProviderEnvironmentValuesContainsOnlySelectedEnvironmentKey(t *
 	}
 }
 
+func TestRunAgentMissingConfigurationNamesRecoveryBeforeDaemonStartup(t *testing.T) {
+	home := t.TempDir()
+	var stderr bytes.Buffer
+	executableCalled := false
+	app := App{
+		Context: context.Background(),
+		Stderr:  &stderr,
+		Getenv:  commandEnv(map[string]string{"HOME": home}),
+		Executable: func() (string, error) {
+			executableCalled = true
+			return filepath.Join(home, "cursor-cli-byok"), nil
+		},
+	}
+
+	exitCode := app.Run([]string{"-p", "hello"})
+
+	if exitCode == 0 {
+		t.Fatal("Run() exit code = 0, want missing configuration failure")
+	}
+	if executableCalled {
+		t.Fatal("Run() located the daemon executable before rejecting missing configuration")
+	}
+	if !strings.Contains(stderr.String(), "cursor-cli-byok config init") {
+		t.Fatalf("stderr = %q, want configuration recovery command", stderr.String())
+	}
+}
+
 func TestRunAgentSynchronizesSelectedProviderEnvironmentBeforeCursorLaunch(t *testing.T) {
 	home := t.TempDir()
 	binDirectory := filepath.Join(home, "bin")

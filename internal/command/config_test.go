@@ -71,6 +71,111 @@ func TestConfigInitNonInteractiveCreatesConfiguration(t *testing.T) {
 	}
 }
 
+func TestConfigInitNonInteractiveAppliesReleaseDefaults(t *testing.T) {
+	home := t.TempDir()
+	const secret = "sk-standard-environment-secret"
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := App{
+		Stdin:  strings.NewReader(""),
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Getenv: commandEnv(map[string]string{
+			"HOME":           home,
+			"OPENAI_API_KEY": secret,
+		}),
+	}
+
+	exitCode := app.Run([]string{
+		"config", "init", "--non-interactive",
+		"--base-url", "https://api.example.com",
+		"--upstream-model", "gpt-5.4",
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("Run() exit code = %d, want 0; stderr = %q", exitCode, stderr.String())
+	}
+	path := filepath.Join(home, ".config", "cursor-cli-byok", "config.yaml")
+	got, err := config.NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.DefaultModel != "gpt-5.4" || len(got.Models) != 1 {
+		t.Fatalf("saved config = %v, want one default gpt-5.4 model", got)
+	}
+	model := got.Models[0]
+	if model.Name != "gpt-5.4" || model.Endpoint != config.EndpointResponses || model.APIKeyEnv != "OPENAI_API_KEY" || model.APIKey != "" {
+		t.Fatalf("saved model = %v, want release defaults", model)
+	}
+	if strings.Contains(stdout.String()+stderr.String(), secret) {
+		t.Fatal("command output leaked standard environment API key")
+	}
+}
+
+func TestConfigInitNonInteractiveExplicitValuesOverrideReleaseDefaults(t *testing.T) {
+	home := t.TempDir()
+	var stderr bytes.Buffer
+	app := App{
+		Stdin:  strings.NewReader(""),
+		Stdout: &bytes.Buffer{},
+		Stderr: &stderr,
+		Getenv: commandEnv(map[string]string{
+			"HOME":           home,
+			"OPENAI_API_KEY": "standard-secret",
+		}),
+	}
+
+	exitCode := app.Run([]string{
+		"config", "init", "--non-interactive",
+		"--name", "custom-chat",
+		"--base-url", "https://chat.example.com",
+		"--endpoint", config.EndpointChatCompletions,
+		"--upstream-model", "gpt-5-mini",
+		"--api-key-env", "CUSTOM_API_KEY",
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("Run() exit code = %d, want 0; stderr = %q", exitCode, stderr.String())
+	}
+	path := filepath.Join(home, ".config", "cursor-cli-byok", "config.yaml")
+	got, err := config.NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	model := got.Models[0]
+	if model.Name != "custom-chat" || model.Endpoint != config.EndpointChatCompletions || model.APIKeyEnv != "CUSTOM_API_KEY" {
+		t.Fatalf("saved model = %v, want explicit values", model)
+	}
+}
+
+func TestConfigInitNonInteractiveRequiresKeySourceWithoutStandardEnvironment(t *testing.T) {
+	home := t.TempDir()
+	var stderr bytes.Buffer
+	app := App{
+		Stdin:  strings.NewReader(""),
+		Stdout: &bytes.Buffer{},
+		Stderr: &stderr,
+		Getenv: commandEnv(map[string]string{"HOME": home}),
+	}
+
+	exitCode := app.Run([]string{
+		"config", "init", "--non-interactive",
+		"--base-url", "https://api.example.com",
+		"--upstream-model", "gpt-5.4",
+	})
+
+	if exitCode == 0 {
+		t.Fatal("Run() exit code = 0, want missing key source failure")
+	}
+	if !strings.Contains(stderr.String(), "api_key") {
+		t.Fatalf("stderr = %q, want API key source context", stderr.String())
+	}
+	path := filepath.Join(home, ".config", "cursor-cli-byok", "config.yaml")
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(config) error = %v, want no configuration", err)
+	}
+}
+
 func TestConfigHelpListsSubcommandsAndAutomationFlags(t *testing.T) {
 	var stdout bytes.Buffer
 	app := App{Stdout: &stdout}
@@ -99,10 +204,9 @@ func TestConfigHelpListsSubcommandsAndAutomationFlags(t *testing.T) {
 func TestConfigInitInteractivePromptsDeterministically(t *testing.T) {
 	home := t.TempDir()
 	input := strings.Join([]string{
-		"interactive-chat",
 		"https://interactive.example.com",
-		config.EndpointChatCompletions,
 		"gpt-5-mini",
+		"",
 		"env",
 		"INTERACTIVE_API_KEY",
 	}, "\n") + "\n"
@@ -115,16 +219,15 @@ func TestConfigInitInteractivePromptsDeterministically(t *testing.T) {
 		Getenv: commandEnv(map[string]string{"HOME": home}),
 	}
 
-	exitCode := app.Run([]string{"config", "init"})
+	exitCode := app.Run([]string{"config", "init", "--endpoint", config.EndpointChatCompletions})
 
 	if exitCode != 0 {
 		t.Fatalf("Run() exit code = %d, want 0; stderr = %q", exitCode, stderr.String())
 	}
 	for _, prompt := range []string{
-		"Model name: ",
 		"Base URL: ",
-		"Endpoint [/v1/responses]: ",
 		"Upstream model: ",
+		"Model name [gpt-5-mini]: ",
 		"API key source (env/inline): ",
 		"API key environment variable: ",
 	} {
@@ -137,7 +240,7 @@ func TestConfigInitInteractivePromptsDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if got.DefaultModel != "interactive-chat" || got.Models[0].Endpoint != config.EndpointChatCompletions || got.Models[0].APIKeyEnv != "INTERACTIVE_API_KEY" {
+	if got.DefaultModel != "gpt-5-mini" || got.Models[0].Endpoint != config.EndpointChatCompletions || got.Models[0].APIKeyEnv != "INTERACTIVE_API_KEY" {
 		t.Fatalf("saved config = %v, want interactive Chat Completions model", got)
 	}
 }
@@ -225,6 +328,57 @@ func TestConfigAddNonInteractivePreservesDefaultModel(t *testing.T) {
 	}
 	if added := got.Models[1]; added.Name != "relay-chat" || added.Endpoint != config.EndpointChatCompletions || added.APIKeyEnv != "CHAT_API_KEY" {
 		t.Fatalf("added model = %v, want relay-chat Chat Completions model", added)
+	}
+}
+
+func TestConfigAddNonInteractiveAppliesReleaseDefaults(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".config", "cursor-cli-byok", "config.yaml")
+	initial := config.Config{
+		Version:      config.CurrentVersion,
+		DefaultModel: "existing",
+		Models: []config.Model{{
+			Name:          "existing",
+			Protocol:      config.ProtocolOpenAI,
+			BaseURL:       "https://existing.example.com",
+			Endpoint:      config.EndpointResponses,
+			APIKeyEnv:     "EXISTING_API_KEY",
+			UpstreamModel: "existing-model",
+		}},
+	}
+	if err := config.NewStore(path).Save(initial); err != nil {
+		t.Fatalf("Save(initial) error = %v", err)
+	}
+
+	var stderr bytes.Buffer
+	app := App{
+		Stdin:  strings.NewReader(""),
+		Stdout: &bytes.Buffer{},
+		Stderr: &stderr,
+		Getenv: commandEnv(map[string]string{
+			"HOME":           home,
+			"OPENAI_API_KEY": "standard-secret",
+		}),
+	}
+	exitCode := app.Run([]string{
+		"config", "add", "--non-interactive",
+		"--base-url", "https://new.example.com",
+		"--upstream-model", "gpt-5.4",
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("Run() exit code = %d, want 0; stderr = %q", exitCode, stderr.String())
+	}
+	got, err := config.NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.DefaultModel != initial.DefaultModel || len(got.Models) != 2 {
+		t.Fatalf("saved config = %v, want existing default plus one model", got)
+	}
+	added := got.Models[1]
+	if added.Name != "gpt-5.4" || added.Endpoint != config.EndpointResponses || added.APIKeyEnv != "OPENAI_API_KEY" {
+		t.Fatalf("added model = %v, want release defaults", added)
 	}
 }
 

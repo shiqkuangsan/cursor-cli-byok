@@ -244,6 +244,8 @@ func (p *fakeProvider) finalText(request fakeProviderRequest, endpoint string) s
 			return "E2E_CHAT_OK"
 		}
 		return "E2E_RESPONSES_OK"
+	case "E2E_JSON":
+		return "E2E_JSON_OK"
 	case "E2E_READ":
 		if containsToolOutput(request.ToolOutput, "READ_FIXTURE_OK") {
 			return "E2E_READ_OK"
@@ -340,6 +342,7 @@ func findScenario(content, current string) string {
 	for _, scenario := range []string{
 		"E2E_CONCURRENT_A",
 		"E2E_CONCURRENT_B",
+		"E2E_JSON",
 		"E2E_TEXT",
 		"E2E_READ",
 		"E2E_WRITE",

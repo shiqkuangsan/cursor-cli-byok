@@ -78,6 +78,16 @@ wait_for_process_exit() {
   return 1
 }
 
+terminate_and_reap() {
+  local pid=$1
+  kill "$pid" 2>/dev/null || true
+  if ! wait_for_process_exit "$pid" 50; then
+    kill -KILL "$pid" 2>/dev/null || true
+    wait_for_process_exit "$pid" 20 || true
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
 file_mode() {
   local path=$1
   if stat -c '%a' "$path" >/dev/null 2>&1; then
@@ -94,6 +104,22 @@ provider_request_count() {
     return
   fi
   grep -F '"event":"request"' "$PROVIDER_LOG" | grep -F "\"scenario\":\"$scenario\"" | wc -l | tr -d ' '
+}
+
+assert_no_secret_in_process_arguments() {
+  command -v ps >/dev/null 2>&1 || fail 'ps is required for process-argument inspection'
+  local process_snapshot
+  process_snapshot=$(ps -axo command= 2>/dev/null) || fail 'could not inspect process arguments'
+  [[ $process_snapshot != *"$CURSOR_CLI_BYOK_E2E_PROVIDER_KEY"* ]] || fail 'provider API key leaked to process arguments'
+}
+
+assert_no_secret_in_artifacts() {
+  local artifact
+  while IFS= read -r -d '' artifact; do
+    if grep -Fq -- "$CURSOR_CLI_BYOK_E2E_PROVIDER_KEY" "$artifact"; then
+      fail "provider API key leaked to E2E artifact: ${artifact#"$E2E_ROOT"/}"
+    fi
+  done < <(find "$E2E_ROOT" -path "$E2E_ROOT/go-build-cache" -prune -o -type f -print0)
 }
 
 run_interactive_smoke() {
@@ -119,6 +145,10 @@ run_interactive_smoke() {
     [[ -f $transcript ]] && tail -c 12000 "$transcript" >&2
     fail "interactive PTY smoke failed with status $interactive_status"
   fi
+  case $interactive_status in
+    0|130) ;;
+    *) fail "interactive PTY smoke exited with unexpected status $interactive_status" ;;
+  esac
 }
 
 if [[ -z $CURSOR_AGENT_PATH ]]; then
@@ -155,14 +185,13 @@ cleanup() {
   local code=$?
   trap - EXIT INT TERM
   for pid in $ACTIVE_PIDS; do
-    kill "$pid" 2>/dev/null || true
+    terminate_and_reap "$pid"
   done
   if [[ -x $BYOK ]]; then
     "$BYOK" stop >/dev/null 2>&1 || true
   fi
   if [[ -n $PROVIDER_PID ]]; then
-    kill "$PROVIDER_PID" 2>/dev/null || true
-    wait "$PROVIDER_PID" 2>/dev/null || true
+    terminate_and_reap "$PROVIDER_PID"
   fi
   if [[ $KEEP_TMP == 1 || $code -ne 0 ]]; then
     printf 'E2E artifacts: %s\n' "$E2E_ROOT" >&2
@@ -190,12 +219,16 @@ if [[ -n $PREBUILT_BYOK || -n $PREBUILT_HELPER ]]; then
   chmod 0755 "$BYOK" "$HELPER"
 else
   note 'building isolated binaries'
+  GO_MODULE_CACHE=$(env GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS= go env GOMODCACHE)
+  [[ $GO_MODULE_CACHE = /* ]] || fail 'Go module cache must resolve to an absolute path'
   (
     cd "$ROOT_DIR"
-    GOTOOLCHAIN=local GOPROXY=off CGO_ENABLED=0 go build -trimpath \
+    GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS= GOPROXY=off CGO_ENABLED=0 \
+      GOMODCACHE="$GO_MODULE_CACHE" GOCACHE="$E2E_ROOT/go-build-cache" go build -trimpath \
       -ldflags '-s -w -X github.com/shiqkuangsan/cursor-cli-byok/internal/buildinfo.Version=e2e' \
       -o "$BYOK" ./cmd/cursor-cli-byok
-    GOTOOLCHAIN=local GOPROXY=off CGO_ENABLED=0 go build -trimpath -o "$HELPER" ./test/e2e
+    GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS= GOPROXY=off CGO_ENABLED=0 \
+      GOMODCACHE="$GO_MODULE_CACHE" GOCACHE="$E2E_ROOT/go-build-cache" go build -trimpath -o "$HELPER" ./test/e2e
   )
 fi
 
@@ -273,9 +306,32 @@ CONFIG_FILE=$XDG_CONFIG_HOME/cursor-cli-byok/config.yaml
 [[ $(file_mode "$CONFIG_FILE") == 600 ]] || fail 'configuration mode is not 0600'
 [[ $(file_mode "$(dirname "$STATE_FILE")") == 700 ]] || fail 'daemon state directory mode is not 0700'
 
-note 'checking Responses and Chat streaming'
-responses_output=$(run_byok --model responses-e2e --trust --print --output-format stream-json --stream-partial-output E2E_TEXT 2>&1)
-assert_contains "$responses_output" 'E2E_RESPONSES_OK' 'Responses stream'
+note 'checking headless text, JSON, and stream JSON contracts'
+if ! (run_byok --model responses-e2e --trust -p E2E_TEXT) >"$E2E_ROOT/headless-text.out" 2>"$E2E_ROOT/headless-text.err"; then
+  sed -n '1,200p' "$E2E_ROOT/headless-text.err" >&2
+  fail 'Responses text output failed'
+fi
+assert_file_contains "$E2E_ROOT/headless-text.out" 'E2E_RESPONSES_OK' 'Responses text stdout'
+
+if ! (run_byok --model responses-e2e --trust -p --output-format json E2E_JSON) >"$E2E_ROOT/headless-json.out" 2>"$E2E_ROOT/headless-json.err"; then
+  sed -n '1,200p' "$E2E_ROOT/headless-json.err" >&2
+  fail 'Responses JSON output failed'
+fi
+if ! "$HELPER" output-check --format json --expected E2E_JSON_OK <"$E2E_ROOT/headless-json.out"; then
+  sed -n '1,200p' "$E2E_ROOT/headless-json.err" >&2
+  fail 'Responses JSON stdout failed validation'
+fi
+[[ $(provider_request_count E2E_JSON) == 1 ]] || fail 'Responses JSON request was not dispatched exactly once'
+
+if ! (run_byok --model responses-e2e --trust -p --output-format stream-json --stream-partial-output E2E_TEXT) >"$E2E_ROOT/headless-stream.out" 2>"$E2E_ROOT/headless-stream.err"; then
+  sed -n '1,200p' "$E2E_ROOT/headless-stream.err" >&2
+  fail 'Responses stream JSON output failed'
+fi
+if ! "$HELPER" output-check --format stream-json --expected E2E_RESPONSES_OK <"$E2E_ROOT/headless-stream.out"; then
+  sed -n '1,200p' "$E2E_ROOT/headless-stream.err" >&2
+  fail 'Responses stream JSON stdout failed validation'
+fi
+
 chat_output=$(run_byok --model chat-e2e --trust --print E2E_TEXT 2>&1)
 assert_contains "$chat_output" 'E2E_CHAT_OK' 'Chat stream'
 
@@ -316,6 +372,7 @@ run_byok --model responses-e2e --trust --print E2E_CANCEL >"$E2E_ROOT/cancel.out
 cancel_pid=$!
 ACTIVE_PIDS=$cancel_pid
 wait_for_pattern "$PROVIDER_LOG" '"scenario":"E2E_CANCEL"'
+assert_no_secret_in_process_arguments
 kill -INT "$cancel_pid"
 if ! wait_for_process_exit "$cancel_pid" 100; then
   kill -KILL "$cancel_pid" 2>/dev/null || true
@@ -330,7 +387,7 @@ ACTIVE_PIDS=
 wait_for_pattern "$PROVIDER_LOG" '"event":"canceled"'
 
 note 'checking provider failure remains fail-closed'
-run_byok --model responses-e2e --trust --print E2E_FAIL >"$E2E_ROOT/fail.out" 2>&1 &
+run_byok --model responses-e2e --trust -p --output-format stream-json E2E_FAIL >"$E2E_ROOT/fail.out" 2>"$E2E_ROOT/fail.err" &
 fail_pid=$!
 ACTIVE_PIDS=$fail_pid
 wait_for_pattern "$PROVIDER_LOG" '"scenario":"E2E_FAIL"'
@@ -346,6 +403,10 @@ ACTIVE_PIDS=
 fail_output=$(cat "$E2E_ROOT/fail.out")
 [[ $fail_code -ne 0 ]] || fail 'provider failure returned a successful wrapper exit code'
 [[ $fail_output != *E2E_RESPONSES_OK* ]] || fail 'provider failure produced a success marker'
+if ! "$HELPER" output-check --format stream-json --reject-success <"$E2E_ROOT/fail.out"; then
+  sed -n '1,200p' "$E2E_ROOT/fail.err" >&2
+  fail 'provider failure machine stdout failed validation'
+fi
 [[ $(provider_request_count E2E_FAIL) == 1 ]] || fail 'pre-tool provider failure was re-dispatched after Cursor reconnect'
 
 note 'checking post-tool failure never repeats a side effect'
@@ -368,9 +429,7 @@ ACTIVE_PIDS=
 [[ $(provider_request_count E2E_SHELL_FAIL) == 2 ]] || fail 'post-tool provider turn was re-dispatched after Cursor reconnect'
 
 note 'checking secret and process-argument hygiene'
-if grep -Fq -- "$CURSOR_CLI_BYOK_E2E_PROVIDER_KEY" "$PROVIDER_LOG" "$PROVIDER_OUTPUT" "$CONFIG_FILE"; then
-  fail 'provider API key leaked to logs or configuration'
-fi
+assert_no_secret_in_artifacts
 if command -v ps >/dev/null 2>&1; then
   provider_command=$(ps -o command= -p "$PROVIDER_PID" 2>/dev/null || true)
 elif [[ -r /proc/$PROVIDER_PID/cmdline ]]; then

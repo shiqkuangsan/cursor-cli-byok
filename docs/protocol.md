@@ -21,6 +21,15 @@ through the Cursor client. Every tool result was returned to provider
 continuation. Delete and Shell acceptance used the official CLI's explicit
 `--force` permission mode.
 
+On 2026-07-12 that Darwin baseline also passed the release headless contract:
+short-form `-p` text, one `--output-format json` result object, and ordered
+`--output-format stream-json --stream-partial-output` events. Machine stdout
+was parsed independently from diagnostics on stderr. The validator requires a
+successful terminal result, exact final text, consistent session identifiers,
+non-negative usage, and partial assistant deltas whose concatenation matches
+the repeated final assistant message; it deliberately does not pin request
+identifiers, timestamps, durations, or exact token counts.
+
 ## Transport
 
 - Loopback-only TLS on a random port, with HTTP/1.1 and HTTP/2 enabled.
@@ -142,6 +151,11 @@ daemon is reused. Overrides are neither persisted nor included in formatted
 diagnostics. The wrapper then removes every configured `api_key_env` name before
 launching the official Cursor process. The internal
 `CURSOR_CLI_BYOK_LOCK_FD` name is rejected as a provider key source.
+
+Overrides are daemon-wide per environment-variable name. Concurrent wrappers
+that share XDG roots must use the same value for a shared name, distinct names
+for distinct accounts, or isolated XDG roots. The last successful sync affects
+subsequent Runs; stopping the daemon clears all in-memory overrides.
 
 Each model alias may also define static provider compatibility headers. The
 daemon copies them into only that alias's outbound inference requests, and

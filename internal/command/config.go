@@ -209,11 +209,13 @@ func (a App) runConfigAdd(args []string) int {
 	if err != nil {
 		return a.fail(fmt.Errorf("config add: %w", err))
 	}
+	options = a.applyModelOptionDefaults(options)
 	if !options.nonInteractive {
 		options, err = a.completeModelOptions("config add", options)
 		if err != nil {
 			return a.fail(err)
 		}
+		options = a.applyModelOptionDefaults(options)
 	}
 	model, err := options.model()
 	if err != nil {
@@ -245,11 +247,13 @@ func (a App) runConfigInit(args []string) int {
 			return a.fail(fmt.Errorf("config init: inspect existing configuration: %w", err))
 		}
 	}
+	options = a.applyModelOptionDefaults(options)
 	if !options.nonInteractive {
 		options, err = a.completeModelOptions("config init", options)
 		if err != nil {
 			return a.fail(err)
 		}
+		options = a.applyModelOptionDefaults(options)
 	}
 	model, err := options.model()
 	if err != nil {
@@ -273,12 +277,6 @@ func (a App) runConfigInit(args []string) int {
 func (a App) completeModelOptions(command string, options modelOptions) (modelOptions, error) {
 	reader := bufio.NewReader(a.Stdin)
 	var err error
-	if options.name == "" {
-		options.name, err = a.promptLine(reader, "Model name: ", "")
-		if err != nil {
-			return modelOptions{}, fmt.Errorf("%s: %w", command, err)
-		}
-	}
 	if options.baseURL == "" {
 		options.baseURL, err = a.promptLine(reader, "Base URL: ", "")
 		if err != nil {
@@ -293,6 +291,16 @@ func (a App) completeModelOptions(command string, options modelOptions) (modelOp
 	}
 	if options.upstreamModel == "" {
 		options.upstreamModel, err = a.promptLine(reader, "Upstream model: ", "")
+		if err != nil {
+			return modelOptions{}, fmt.Errorf("%s: %w", command, err)
+		}
+	}
+	if options.name == "" {
+		prompt := "Model name: "
+		if options.upstreamModel != "" {
+			prompt = fmt.Sprintf("Model name [%s]: ", options.upstreamModel)
+		}
+		options.name, err = a.promptLine(reader, prompt, options.upstreamModel)
 		if err != nil {
 			return modelOptions{}, fmt.Errorf("%s: %w", command, err)
 		}
@@ -315,6 +323,19 @@ func (a App) completeModelOptions(command string, options modelOptions) (modelOp
 		}
 	}
 	return options, nil
+}
+
+func (a App) applyModelOptionDefaults(options modelOptions) modelOptions {
+	if options.endpoint == "" {
+		options.endpoint = config.EndpointResponses
+	}
+	if options.name == "" && options.upstreamModel != "" {
+		options.name = options.upstreamModel
+	}
+	if options.apiKey == "" && options.apiKeyEnv == "" && a.Getenv("OPENAI_API_KEY") != "" {
+		options.apiKeyEnv = "OPENAI_API_KEY"
+	}
+	return options
 }
 
 func (a App) promptLine(reader *bufio.Reader, prompt, defaultValue string) (string, error) {

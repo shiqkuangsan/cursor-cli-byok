@@ -157,10 +157,14 @@ test_first_install() {
   mkdir -p "$home"
   make_test_path "$path" 1 1
   make_assets "$assets" 'binary-v1'
-  run_installer "$home" "$path" "$assets" "$root/curl.log" --install-dir "$install_dir" --skip-cursor-install >/dev/null
+  run_installer "$home" "$path" "$assets" "$root/curl.log" --install-dir "$install_dir" --skip-cursor-install >"$root/output"
   [[ $(cat "$install_dir/cursor-cli-byok") == binary-v1 ]] || fail 'first install contents differ'
   [[ $(file_mode "$install_dir/cursor-cli-byok") == 755 ]] || fail 'first install mode is not 0755'
   grep -Fq 'checksums.txt' "$root/curl.log" || fail 'checksums were not downloaded'
+  grep -Fxq 'Next: export OPENAI_API_KEY, then run cursor-cli-byok config init' "$root/output" || fail 'first install did not print the configuration next step'
+  if grep -Eq 'sk-[[:alnum:]_-]{16,}' "$root/output"; then
+    fail 'first install output contained an API-key-like value'
+  fi
 }
 
 test_upgrade_replaces_existing_binary() {

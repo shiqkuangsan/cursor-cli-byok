@@ -126,7 +126,11 @@ func (m Manager) startUnderLock(ctx context.Context, lock *FileLock) (State, err
 	}
 	releaseWithUnlock = false
 	if err := child.Detach(); err != nil {
-		return State{}, fmt.Errorf("ensure daemon: detach background child: %w", err)
+		detachError := fmt.Errorf("ensure daemon: detach background child: %w", err)
+		if stopError := m.stopChild(child); stopError != nil {
+			return State{}, errors.Join(detachError, fmt.Errorf("stop undetached daemon: %w", stopError))
+		}
+		return State{}, detachError
 	}
 	return state, nil
 }
