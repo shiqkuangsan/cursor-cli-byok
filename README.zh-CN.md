@@ -132,8 +132,10 @@ make linux-e2e
 ## 独立性
 
 本仓库不是 fork，在源码、构建、Git 和运行时层面都不依赖
-`shiqkuangsan/cursor-agent-byok` 或 `leookun/cursor-byok`。这两个项目的公开实现仅作为
-协议研究的 prior-art 参考；本项目独立拥有自己的架构和实现。已审阅 revision 与维护
+canonical reference `sherkevin/cursor-agent-byok` 或 `leookun/cursor-byok`。项目初期曾参考
+`shiqkuangsan/cursor-agent-byok` 和 `shiqkuangsan/cursor-byok` 这两个 fork；后续审查直接
+对比它们的 canonical upstream。这些公开实现仅作为协议研究的 prior-art 参考；本项目
+独立拥有自己的架构和实现。精确的已审阅 commit、被忽略的 `.labs/` clone 布局和维护
 规则记录在 [docs/upstream-reference.md](docs/upstream-reference.md)（英文）中。
 
 本项目与 Cursor 及上述两个参考项目均无关联。

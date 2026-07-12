@@ -25,8 +25,8 @@
   revisions and follow-up work.
 - Review upstream selectively when protocol compatibility work starts, a Cursor
   CLI change breaks behavior, or a maintainer explicitly requests an update.
-- Compare each recorded commit with the new upstream revision outside this
-  repository. Inspect only the tracked reference areas.
+- Compare each recorded commit with the new upstream revision in the ignored
+  `.labs/` reference clones. Inspect only the tracked reference areas.
 - Record the review date, new commit, relevant findings, local impact, and
   follow-up status before implementing any adopted behavior.
 - Preserve local architecture and tests. An upstream implementation is evidence,

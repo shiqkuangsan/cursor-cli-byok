@@ -138,10 +138,13 @@ in automation.
 ## Independence
 
 This repository is not a fork and has no source, build, Git, or runtime
-dependency on `shiqkuangsan/cursor-agent-byok` or `leookun/cursor-byok`. Their
-public implementations are prior-art references for protocol research; this
-project owns its architecture and implementation. Reviewed revisions and
-maintenance rules are recorded in
+dependency on the canonical references `sherkevin/cursor-agent-byok` or
+`leookun/cursor-byok`. The project originally consulted the
+`shiqkuangsan/cursor-agent-byok` and `shiqkuangsan/cursor-byok` forks; ongoing
+reviews now compare directly against their canonical upstream repositories.
+These public implementations are prior-art references for protocol research;
+this project owns its architecture and implementation. Exact reviewed commits,
+the ignored `.labs/` clone layout, and maintenance rules are recorded in
 [docs/upstream-reference.md](docs/upstream-reference.md).
 
 This project is not affiliated with Cursor or either reference project.
