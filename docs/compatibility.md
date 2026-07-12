@@ -88,6 +88,45 @@ did not appear in acceptance artifacts.
 This was a local release-candidate rehearsal only. No Git remote, tag, GitHub
 release, or upload was created.
 
+## v0.1.0 Public Release
+
+[`v0.1.0`](https://github.com/shiqkuangsan/cursor-cli-byok/releases/tag/v0.1.0)
+was published on 2026-07-12 from commit
+[`c259588`](https://github.com/shiqkuangsan/cursor-cli-byok/commit/c259588ad0cd90a47dee18beceb741ef868feb82).
+The pre-tag [main CI run](https://github.com/shiqkuangsan/cursor-cli-byok/actions/runs/29188626634)
+passed verify, race, Linux lifecycle, and the official-Cursor Linux E2E. The
+tag-triggered [Release run](https://github.com/shiqkuangsan/cursor-cli-byok/actions/runs/29188795970)
+then repeated verification, built both architectures, ran amd64 and arm64
+lifecycle smoke, passed the Linux amd64 E2E with verified Cursor
+`2026.07.09-a3815c0`, checked the manifest, and published all three assets.
+
+The published manifest contains:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `cursor-cli-byok-linux-amd64` | `9932da3684cc7c477fd66ecc3f21b5c33b83cb251c99d922221093d72b34f0a8` |
+| `cursor-cli-byok-linux-arm64` | `8972a7d4abf0434450c7f187a7adb2a7e94564b0e097029fbf246e8cefeab1ac` |
+
+Fresh public downloads matched that manifest, were static x86-64/aarch64 ELF
+executables, and contained the `v0.1.0` version marker. The README installer
+flow then passed as an unprivileged user in clean Linux amd64 and arm64
+containers, including checksum verification and the reported binary version.
+
+A separate clean Ubuntu arm64 acceptance installed the current official Cursor
+CLI and the public wrapper through their network installers as UID 1000. With a
+fresh HOME/XDG tree, no Cursor IDE, and no Cursor login, it configured the
+Responses endpoint through a loopback forward to the authorized Sub2API,
+passed `doctor`, and accepted an exact successful `gpt-5.6-luna` JSON result:
+`PUBLIC_RELEASE_REAL_PROVIDER_OK`. The API key was inherited only by environment
+name and was not placed in an argument, config value, or reported output.
+
+A preferred post-release rerun on `172.16.16.61` was attempted twice, but the
+client route sent that private address toward the public ISP and SSH timed out
+before any remote command ran. This is recorded as an environment gap rather
+than a product failure: the RC artifact already passed on that host, the only
+post-RC code correction was in the E2E helper, and the downloaded public arm64
+artifact completed the real-provider acceptance above.
+
 ## Acceptance Coverage
 
 The E2E runner creates an isolated HOME, XDG configuration, workspace, daemon,
